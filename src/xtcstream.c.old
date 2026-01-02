@@ -1,0 +1,204 @@
+/*
+ * XTC OpenFE data streamer, backend C for hook into python wrapper for multi terabyte 
+ * streaming and frame replay on low memory machines
+ *
+ * modes: 
+ *   HTTPS [x]
+ *   FTP   []
+ *   FTPS  [] 
+ *
+ * Michael Blakey 2025
+ * NextMove Software
+ */
+
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <pthread.h>
+#include <curl/curl.h>
+
+#include "xtcspooler.h"
+
+uint64_t clo_block_size; 
+char clo_verbose;
+const char *download_link; 
+
+/* foward defs */
+static size_t libcurl_write_callback(void *ptr, size_t size, size_t nmemb, void *data); 
+
+#define TEST_STREAM stdout
+const char *test_link = "https://curl.se/libcurl/c/chkspeed.html";
+
+
+/*___________________________________________________________________________
+ |
+ | sizeofints - calculate 'bitsize' of compressed ints
+ |
+ | given the number of small unsigned integers and the maximum value
+ | return the number of bits needed to read or write them with the
+ | routines receiveints and sendints. You need this parameter when
+ | calling these routines. Note that for many calls I can use
+ | the variable 'smallidx' which is exactly the number of bits, and
+ | So I don't need to call 'sizeofints for those calls.
+*/
+
+static int sizeofints( const int num_of_ints, unsigned int sizes[]) {
+    int i, num;
+    unsigned int num_of_bytes, num_of_bits, bytes[32], bytecnt, tmp;
+    num_of_bytes = 1;
+    bytes[0] = 1;
+    num_of_bits = 0;
+    for (i=0; i < num_of_ints; i++) {	
+	tmp = 0;
+	for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++) {
+	    tmp = bytes[bytecnt] * sizes[i] + tmp;
+	    bytes[bytecnt] = tmp & 0xff;
+	    tmp >>= 8;
+	}
+	while (tmp != 0) {
+	    bytes[bytecnt++] = tmp & 0xff;
+	    tmp >>= 8;
+	}
+	num_of_bytes = bytecnt;
+    }
+    num = 1;
+    num_of_bytes--;
+    while (bytes[num_of_bytes] >= num) {
+	num_of_bits++;
+	num *= 2;
+    }
+    return num_of_bits + num_of_bytes * 8;
+
+}
+
+
+static int xtcspooler_add_url_handle(struct xtcspooler *s, const char *url) {
+  CURL *eh = curl_easy_init(); 
+  curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, libcurl_write_callback); 
+  curl_easy_setopt(eh, CURLOPT_WRITEDATA, s);
+  curl_easy_setopt(eh, CURLOPT_URL, url);
+  s->socket = eh; 
+  s->type   = SOCKET_TYPE_URL;  
+  return 0; 
+}
+
+
+static int xtcspooler_stream(struct xtcspooler *s) {
+  if (s->type == SOCKET_TYPE_NULL) {
+    fprintf(stderr, "Error: xtcspooler_stream() -- curl handle has not be initialised\n"); 
+    return 1; 
+  }
+  int res = curl_easy_perform(s->socket); 
+  if (res == CURLE_OK)
+    xtcspooler_flush(s, TEST_STREAM); 
+  return res; 
+}
+
+
+
+
+static size_t libcurl_write_callback(void *ptr, size_t size, size_t nmemb, void *data)
+{
+  struct xtcspooler *s = (struct xtcspooler*)data;
+  xtcspooler_concat(s, ptr, size, nmemb); 
+  return (size_t)(size * nmemb);
+}
+
+
+
+static void display_usage() {
+  fprintf(stderr, 
+      "usage:\n"
+      "  xtcspooler [options] <download link>\n"
+      "options:\n"
+      "  -b|--block <size>\tset the thread block size (default 16KiB)\n"
+      "  -v|--verbose\tverbose logging to stderr\n"
+      ); 
+  exit(1); 
+}
+
+
+static void process_cml(int argc, char **argv) {
+  int j = 0; 
+
+  clo_verbose    = 0; 
+  clo_block_size = 16382; 
+  download_link  = (const char*)NULL; 
+
+  for (int i=1; i<argc; i++) {
+    const char *ptr = argv[i]; 
+
+    if (ptr[0] == '-' && ptr[1]) switch(ptr[1]) {
+      case 'b':
+        if (++i == argc || !(clo_block_size = atoi(argv[i]))) {
+          fprintf(stderr, "Error: process_cml -- block size option must be followed with an int\n"); 
+          display_usage(); 
+        }
+
+        if (clo_block_size < CURL_MAX_WRITE_SIZE) {
+          fprintf(stderr, "Warning: process_cml -- block size must be >= curl block download (16KiB), setting...\n"); 
+          clo_block_size = 16382; 
+        }
+        break; 
+      
+      case 'v': clo_verbose++; break; 
+
+      default: 
+        fprintf(stderr, "Error: process_cml -- unknown option - %s\n", ptr); 
+        display_usage(); 
+    }
+    else switch (j++) {
+      case 0: download_link = ptr; break; 
+    }
+  }
+
+  if (j < 1) {
+    fprintf(stderr, "Error: process_cml -- not enough args\n"); 
+    display_usage(); 
+  }
+
+  if (clo_verbose) {
+    fprintf(stderr, "=== block size %llu\n", (unsigned long long)clo_block_size);  
+  }
+}
+
+
+int main(int argc, char **argv) {
+  process_cml(argc, argv); 
+  curl_global_init(CURL_GLOBAL_ALL); 
+
+  struct xtcspooler *xtc = xtcspooler_alloc(clo_block_size); 
+
+  xtcspooler_add_url_handle(xtc, test_link); 
+  if (xtcspooler_stream(xtc) == 0) {
+    
+    if (clo_verbose) {
+      curl_off_t val;
+      int res = curl_easy_getinfo(xtc->socket, CURLINFO_SIZE_DOWNLOAD_T, &val);
+      if ((CURLE_OK == res) && (val > 0))
+        printf("=== downloaded %lu bytes\n", (unsigned long)val); 
+
+      res = curl_easy_getinfo(xtc->socket, CURLINFO_TOTAL_TIME_T, &val);
+      if ((CURLE_OK == res) && (val > 0)) {
+        printf("=== download time: %lu.%06lu sec\n",
+               (unsigned long)(val / 1000000), (unsigned long)(val % 1000000));
+      }
+   
+      /* check for average download speed */
+      res = curl_easy_getinfo(xtc->socket, CURLINFO_SPEED_DOWNLOAD_T, &val);
+      if ((CURLE_OK == res) && (val > 0)) {
+        printf("=== avg download speed: %lu kbyte/sec\n",
+               (unsigned long)(val / 1024));
+      }
+    }
+  } 
+  xtcspooler_free(xtc); 
+
+  curl_global_cleanup(); 
+  return 0; 
+}
+
+
+
