@@ -26,6 +26,6 @@ options:
   -v|--verbose	verbose logging to stderr
 ```
 
-Common example used for unit testing this was `./xtc-decompile -u "https://zenodo.org/records/14512968/files/example_simulation_6PMB_5000Frames.xtc" > curldecompile.txt` and comparing it to the original GROMACS output from the file on disc. 
+Common example used for unit testing this was `./xtc-decompile -u "https://zenodo.org/records/14512968/files/example_simulation_6PMB_5000Frames.xtc"` and comparing it to the original GROMACS output from the file on disc. 
 
 ## Performance 
