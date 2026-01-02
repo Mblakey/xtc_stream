@@ -1,6 +1,6 @@
 # Streaming XTC GROMACS File Decompiler
 
-This is a reverse engineer of the GROMACS XTC format, both from the open-source code and analysis of the binary format. The idea being that we can intercept the decompression process and split into states that allow streaming. Coordinate files can get pretty large (>TiB), so a state saving decompression is a good apprach.
+This is a reverse engineer of the GROMACS XTC format, both from the open-source code and analysis of the binary format. The idea being that we can intercept the decompression process and split into states that allow streaming. Coordinate files can get pretty large (>TiB), so a state saving decompression is a good approach. The code in first commit came from a single afternoon at a conference, and was done for prototyping speed. 
 
 This is a proof of concept, a URL (zenodo) can be inputted which will stream the coordinates to the terminal. Real use case would be streaming the frames into another program, but i'm unaware of what these might be, what the format expected is etc. 
 
