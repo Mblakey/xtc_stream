@@ -29,3 +29,10 @@ options:
 Common example used for unit testing this was `./xtc-decompile -u "https://zenodo.org/records/14512968/files/example_simulation_6PMB_5000Frames.xtc"` and comparing it to the original GROMACS output from the file on disc. 
 
 ## Performance 
+
+Using two files for testing, 
+
+1. Small file - `https://zenodo.org/records/14512968/files/example_simulation_6PMB_5000Frames.xtc`
+2. Large file - <x>
+
+Benchmark timings are shown for performance gains over the commit history. Small file performance improvements are from instruction level optimizations, large file improvements are mainly due to IO and data throughput tweaks. 
