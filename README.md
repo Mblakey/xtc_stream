@@ -36,3 +36,47 @@ Using two files for testing,
 2. Large file - <x>
 
 Benchmark timings are shown for performance gains over the commit history. Small file performance improvements are from instruction level optimizations, large file improvements are mainly due to IO and data throughput tweaks. 
+
+**Hardware for testing:** 
+
+Operating System: Ubuntu 24.04.3 LTS
+Kernel: Linux 6.14.0-37-generic
+
+Model name: AMD Ryzen 7 7840U w/ Radeon  780M Graphics
+Architecture: x86_64
+CPU(s): 16
+Thread(s) per core: 2
+
+Maximum Capacity: 64 GB
+Configured Memory Speed: 5600 MT/s
+Manufacturer: A-DATA Technology
+Serial Number: 00138028
+
+Socket Designation: L1 - Cache
+Operational Mode: Write Back
+Maximum Size: 512 kB
+Installed SRAM Type: Pipeline Burst
+Speed: 1 ns
+System Type: Unified
+Associativity: 8-way Set-associative
+
+Socket Designation: L2 - Cache
+Operational Mode: Write Back
+Maximum Size: 8 MB
+Installed SRAM Type: Pipeline Burst
+Speed: 1 ns
+System Type: Unified
+Associativity: 8-way Set-associative
+
+Socket Designation: L3 - Cache
+Operational Mode: Write Back
+Maximum Size: 16 MB
+Installed SRAM Type: Pipeline Burst
+Speed: 1 ns
+System Type: Unified
+Associativity: 16-way Set-associative
+
+
+### Small File Performance 
+
+For the small file, the `.xtc` file is first forced to be resident in memory before performing the test. Standard xtc decompression is used here over the stateful changes. 
