@@ -29,6 +29,7 @@
 
 #include "xdrfile.h"
 #include "xdrfile_xtc.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -37,7 +38,8 @@
 enum { FALSE, TRUE };
 
 int xtc_header(XDRFILE *xd, int *natoms, int *step, float *time,
-                      mybool bRead) {
+               mybool bRead) 
+{
   int result, magic, n = 1;
 
   /* Note: read is same as write. He he he */
@@ -126,3 +128,5 @@ int write_xtc(XDRFILE *xd, int natoms, int step, float time, matrix box,
 
   return exdrOK;
 }
+
+

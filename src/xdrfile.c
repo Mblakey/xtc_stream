@@ -132,8 +132,8 @@ struct XDR
 		int (*x_getbytes) (XDR *__xdrs, char *__addr, unsigned int __len);
 		int (*x_putbytes) (XDR *__xdrs, char *__addr, unsigned int __len);
 		/* two next routines are not 64-bit IO safe - don't use! */
-		unsigned int (*x_getpostn) (XDR *__xdrs);
-		int (*x_setpostn) (XDR *__xdrs, unsigned int __pos);
+		uint64_t (*x_getpostn) (XDR *__xdrs);
+		uint64_t (*x_setpostn) (XDR *__xdrs, uint64_t __pos, int __whence);
 		void (*x_destroy) (XDR *__xdrs);
 	}
     *x_ops;
@@ -186,16 +186,13 @@ struct XDRFILE
 };
 
 
-
-
 /*************************************************************
  * Implementation of higher-level routines to read/write     *
  * portable data based on the XDR standard. These should be  *
  * called from C - see further down for Fortran77 wrappers.  *
  *************************************************************/
 
-XDRFILE *
-xdrfile_open(const char *path, const char *mode)
+XDRFILE* xdrfile_open(const char *path, const char *mode)
 {
 	char newmode[5];
 	enum xdr_op xdrmode;
@@ -237,8 +234,8 @@ xdrfile_open(const char *path, const char *mode)
 	return xfp;
 }
 
-int
-xdrfile_close(XDRFILE *xfp)
+
+int xdrfile_close(XDRFILE *xfp)
 {
 	int ret=exdrCLOSE;
 	if(xfp)
@@ -259,9 +256,7 @@ xdrfile_close(XDRFILE *xfp)
 }
 
 
-
-int
-xdrfile_read_int(int *ptr, int ndata, XDRFILE* xfp)
+int xdrfile_read_int(int *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -272,8 +267,8 @@ xdrfile_read_int(int *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_int(int *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_int(int *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -284,8 +279,7 @@ xdrfile_write_int(int *ptr, int ndata, XDRFILE* xfp)
 }
 
 
-int
-xdrfile_read_uint(unsigned int *ptr, int ndata, XDRFILE* xfp)
+int xdrfile_read_uint(unsigned int *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -296,8 +290,8 @@ xdrfile_read_uint(unsigned int *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_uint(unsigned int *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_uint(unsigned int *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -307,23 +301,10 @@ xdrfile_write_uint(unsigned int *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_read_char(char *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_read_char(char *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
-
-	/* read write is encoded in the XDR struct */
-	while(i<ndata && xdr_char((XDR *)(xfp->xdr),ptr+i))
-		i++;
-
-	return i;
-}
-
-int
-xdrfile_write_char(char *ptr, int ndata, XDRFILE* xfp)
-{
-	int i=0;
-
 	/* read write is encoded in the XDR struct */
 	while(i<ndata && xdr_char((XDR *)(xfp->xdr),ptr+i))
 		i++;
@@ -331,8 +312,18 @@ xdrfile_write_char(char *ptr, int ndata, XDRFILE* xfp)
 }
 
 
-int
-xdrfile_read_uchar(unsigned char *ptr, int ndata, XDRFILE* xfp)
+int xdrfile_write_char(char *ptr, int ndata, XDRFILE *xfp)
+{
+	int i=0;
+
+	/* read write is encoded in the XDR struct */
+	while(i<ndata && xdr_char((XDR *)(xfp->xdr),ptr+i))
+		i++;
+	return i;
+}
+
+
+int xdrfile_read_uchar(unsigned char *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -343,8 +334,8 @@ xdrfile_read_uchar(unsigned char *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_uchar(unsigned char *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_uchar(unsigned char *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -354,8 +345,8 @@ xdrfile_write_uchar(unsigned char *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_read_short(short *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_read_short(short *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -366,8 +357,7 @@ xdrfile_read_short(short *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_short(short *ptr, int ndata, XDRFILE* xfp)
+int xdrfile_write_short(short *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -378,8 +368,7 @@ xdrfile_write_short(short *ptr, int ndata, XDRFILE* xfp)
 }
 
 
-int
-xdrfile_read_ushort(unsigned short *ptr, int ndata, XDRFILE* xfp)
+int xdrfile_read_ushort(unsigned short *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -390,8 +379,8 @@ xdrfile_read_ushort(unsigned short *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_ushort(unsigned short *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_ushort(unsigned short *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 
@@ -401,8 +390,8 @@ xdrfile_write_ushort(unsigned short *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_read_float(float *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_read_float(float *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 	/* read write is encoded in the XDR struct */
@@ -411,8 +400,8 @@ xdrfile_read_float(float *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_float(float *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_float(float *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 	/* read write is encoded in the XDR struct */
@@ -421,8 +410,8 @@ xdrfile_write_float(float *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_read_double(double *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_read_double(double *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 	/* read write is encoded in the XDR struct */
@@ -431,8 +420,8 @@ xdrfile_read_double(double *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_write_double(double *ptr, int ndata, XDRFILE* xfp)
+
+int xdrfile_write_double(double *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
 	/* read write is encoded in the XDR struct */
@@ -441,8 +430,8 @@ xdrfile_write_double(double *ptr, int ndata, XDRFILE* xfp)
 	return i;
 }
 
-int
-xdrfile_read_string(char *ptr, int maxlen, XDRFILE* xfp)
+
+int xdrfile_read_string(char *ptr, int maxlen, XDRFILE *xfp)
 {
 	int i;
 	if(xdr_string((XDR *)(xfp->xdr),&ptr,maxlen)) {
@@ -457,35 +446,28 @@ xdrfile_read_string(char *ptr, int maxlen, XDRFILE* xfp)
 		return 0;
 }
 
-int
-xdrfile_write_string(char *ptr, XDRFILE* xfp)
-{
-	int len=strlen(ptr)+1;
 
-	if(xdr_string((XDR *)(xfp->xdr),&ptr,len))
-		return len;
-	else
-		return 0;
+int xdrfile_write_string(char *ptr, XDRFILE *xfp) {
+  int len = strlen(ptr) + 1;
+	if (xdr_string((XDR*)(xfp->xdr), &ptr, len))
+    return len;
+  return 0;
 }
 
 
-int
-xdrfile_read_opaque(char *ptr, int cnt, XDRFILE* xfp)
+int xdrfile_read_opaque(char *ptr, int cnt, XDRFILE *xfp)
 {
-	if(xdr_opaque((XDR *)(xfp->xdr),ptr,cnt))
+	if (xdr_opaque((XDR*)(xfp->xdr), ptr, cnt))
 		return cnt;
-	else
-		return 0;
+	return 0;
 }
 
 
-int
-xdrfile_write_opaque(char *ptr, int cnt, XDRFILE* xfp)
+int xdrfile_write_opaque(char *ptr, int cnt, XDRFILE *xfp)
 {
-	if(xdr_opaque((XDR *)(xfp->xdr),ptr,cnt))
-		return cnt;
-	else
-		return 0;
+	if (xdr_opaque((XDR*)(xfp->xdr), ptr, cnt))
+    return cnt;
+  return 0;
 }
 
 
@@ -497,11 +479,11 @@ int sizeofint(int size) {
   unsigned int num = 1;
   int num_of_bits = 0;
 
-  while (size >= num && num_of_bits < 32)
-  {
-  num_of_bits++;
-  num <<= 1;
+  while (size >= num && num_of_bits < 32) {
+    num_of_bits++;
+    num <<= 1;
   }
+
   return num_of_bits;
 }
 
@@ -559,41 +541,37 @@ int sizeofints(int num_of_ints, unsigned int sizes[])
  * better make sure that this number of bits is enough to hold the value.
  * Num must also be positive.
  */
-static void
-encodebits(int buf[], int num_of_bits, int num)
+static void encodebits(int *buf, int num_of_bits, int num)
 {
+  unsigned int cnt, lastbyte;
+  int lastbits;
+  unsigned char * cbuf;
 
-    unsigned int cnt, lastbyte;
-    int lastbits;
-    unsigned char * cbuf;
+  cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
+  cnt = (unsigned int) buf[0];
+  lastbits = buf[1];
+  lastbyte =(unsigned int) buf[2];
 
-    cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
-    cnt = (unsigned int) buf[0];
-    lastbits = buf[1];
-    lastbyte =(unsigned int) buf[2];
-    while (num_of_bits >= 8)
-    {
-		lastbyte = (lastbyte << 8) | ((num >> (num_of_bits -8)) /* & 0xff*/);
-		cbuf[cnt++] = lastbyte >> lastbits;
-		num_of_bits -= 8;
+  while (num_of_bits >= 8) {
+    lastbyte = (lastbyte << 8) | ((num >> (num_of_bits -8)) /* & 0xff*/);
+    cbuf[cnt++] = lastbyte >> lastbits;
+    num_of_bits -= 8;
+  }
+  if (num_of_bits > 0) {
+    lastbyte = (lastbyte << num_of_bits) | num;
+    lastbits += num_of_bits;
+    if (lastbits >= 8) {
+      lastbits -= 8;
+      cbuf[cnt++] = lastbyte >> lastbits;
     }
-    if (num_of_bits > 0)
-    {
-		lastbyte = (lastbyte << num_of_bits) | num;
-		lastbits += num_of_bits;
-		if (lastbits >= 8)
-        {
-			lastbits -= 8;
-			cbuf[cnt++] = lastbyte >> lastbits;
-		}
-    }
-    buf[0] = cnt;
-    buf[1] = lastbits;
-    buf[2] = lastbyte;
-    if (lastbits>0)
-    {
-		cbuf[cnt] = lastbyte << (8 - lastbits);
-    }
+  }
+
+  buf[0] = cnt;
+  buf[1] = lastbits;
+  buf[2] = lastbyte;
+
+  if (lastbits > 0) 
+    cbuf[cnt] = lastbyte << (8 - lastbits);
 }
 
 /*
@@ -610,62 +588,52 @@ encodebits(int buf[], int num_of_bits, int num)
  * THese things are checked in the calling routines, so make sure not
  * to remove those checks...
  */
-
-static void
-encodeints(int buf[], int num_of_ints, int num_of_bits,
-		   unsigned int sizes[], unsigned int nums[])
+static void encodeints(int *buf, int num_of_ints, int num_of_bits,
+                       unsigned int *sizes, unsigned int *nums)
 {
+  int i;
+  unsigned int bytes[32], num_of_bytes, bytecnt, tmp;
 
-    int i;
-    unsigned int bytes[32], num_of_bytes, bytecnt, tmp;
+  tmp = nums[0];
+  num_of_bytes = 0;
+  do {
+    bytes[num_of_bytes++] = tmp & 0xff;
+    tmp >>= 8;
+  } while (tmp != 0);
 
-    tmp = nums[0];
-    num_of_bytes = 0;
-    do
-    {
-		bytes[num_of_bytes++] = tmp & 0xff;
-		tmp >>= 8;
-    } while (tmp != 0);
+  for (i = 1; i < num_of_ints; i++) {
+    if (nums[i] >= sizes[i]) {
+      fprintf(stderr,"major breakdown in encodeints - num %u doesn't "
+          "match size %u\n", nums[i], sizes[i]);
+      abort();
+    }
 
-    for (i = 1; i < num_of_ints; i++)
-    {
-		if (nums[i] >= sizes[i])
-        {
-			fprintf(stderr,"major breakdown in encodeints - num %u doesn't "
-					"match size %u\n", nums[i], sizes[i]);
-			abort();
-		}
-		/* use one step multiply */
-		tmp = nums[i];
-		for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++)
-        {
-			tmp = bytes[bytecnt] * sizes[i] + tmp;
-			bytes[bytecnt] = tmp & 0xff;
-			tmp >>= 8;
-		}
-		while (tmp != 0)
-        {
-			bytes[bytecnt++] = tmp & 0xff;
-			tmp >>= 8;
-		}
-		num_of_bytes = bytecnt;
+    /* use one step multiply */
+    tmp = nums[i];
+    for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++) {
+      tmp = bytes[bytecnt] * sizes[i] + tmp;
+      bytes[bytecnt] = tmp & 0xff;
+      tmp >>= 8;
     }
-    if (num_of_bits >= num_of_bytes * 8)
-    {
-		for (i = 0; i < num_of_bytes; i++)
-        {
-			encodebits(buf, 8, bytes[i]);
-		}
-		encodebits(buf, num_of_bits - num_of_bytes * 8, 0);
+
+    while (tmp != 0) {
+      bytes[bytecnt++] = tmp & 0xff;
+      tmp >>= 8;
     }
-    else
-    {
-		for (i = 0; i < num_of_bytes-1; i++)
-        {
-			encodebits(buf, 8, bytes[i]);
-		}
-		encodebits(buf, num_of_bits- (num_of_bytes -1) * 8, bytes[i]);
-    }
+    num_of_bytes = bytecnt;
+  }
+
+  if (num_of_bits >= num_of_bytes * 8) {
+    for (i = 0; i < num_of_bytes; i++) 
+      encodebits(buf, 8, bytes[i]);
+
+    encodebits(buf, num_of_bits - num_of_bytes * 8, 0);
+  }
+  else {
+    for (i = 0; i < num_of_bytes-1; i++) 
+      encodebits(buf, 8, bytes[i]);
+    encodebits(buf, num_of_bits- (num_of_bytes -1) * 8, bytes[i]);
+  }
 }
 
 
@@ -676,43 +644,41 @@ encodeints(int buf[], int num_of_ints, int num_of_bits,
  * from it. Return that value.
  *
  */
-
-int
-decodebits(int buf[], int num_of_bits)
+int decodebits(int buf[], int num_of_bits)
 {
-    int cnt, num;
-    unsigned int lastbits, lastbyte;
-    unsigned char * cbuf;
-    int mask = (1 << num_of_bits) -1;
+  int cnt, num;
+  unsigned int lastbits, lastbyte;
+  unsigned char * cbuf;
+  int mask = (1 << num_of_bits) -1;
 
-    cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
-    cnt = buf[0];
-    lastbits = (unsigned int) buf[1];
-    lastbyte = (unsigned int) buf[2];
+  cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
+  cnt = buf[0];
+  lastbits = (unsigned int) buf[1];
+  lastbyte = (unsigned int) buf[2];
 
-    num = 0;
-    while (num_of_bits >= 8)
-    {
-		lastbyte = ( lastbyte << 8 ) | cbuf[cnt++];
-		num |=  (lastbyte >> lastbits) << (num_of_bits - 8);
-		num_of_bits -=8;
+  num = 0;
+  while (num_of_bits >= 8) {
+    lastbyte = ( lastbyte << 8 ) | cbuf[cnt++];
+    num |=  (lastbyte >> lastbits) << (num_of_bits - 8);
+    num_of_bits -=8;
+  }
+
+  if (num_of_bits > 0) {
+    if (lastbits < num_of_bits) {
+      lastbits += 8;
+      lastbyte = (lastbyte << 8) | cbuf[cnt++];
     }
-    if (num_of_bits > 0)
-    {
-		if (lastbits < num_of_bits)
-        {
-			lastbits += 8;
-			lastbyte = (lastbyte << 8) | cbuf[cnt++];
-		}
-		lastbits -= num_of_bits;
-		num |= (lastbyte >> lastbits) & ((1 << num_of_bits) -1);
-    }
-    num &= mask;
-    buf[0] = cnt;
-    buf[1] = lastbits;
-    buf[2] = lastbyte;
-    return num;
+    lastbits -= num_of_bits;
+    num |= (lastbyte >> lastbits) & ((1 << num_of_bits) -1);
+  }
+
+  num &= mask;
+  buf[0] = cnt;
+  buf[1] = lastbits;
+  buf[2] = lastbyte;
+  return num;
 }
+
 
 /*
  * decodeints - decode 'small' integers from the buf array
@@ -723,31 +689,25 @@ decodebits(int buf[], int num_of_bits)
  * used from buf in num_of_bits.
  *
  */
-
-void
-decodeints(int buf[], int num_of_ints, int num_of_bits,
-		   unsigned int sizes[], int nums[])
+void decodeints(int *buf, int num_of_ints, int num_of_bits,
+                unsigned int *sizes, int *nums)
 {
-
 	int bytes[32];
 	int i, j, num_of_bytes, p, num;
 
 	bytes[1] = bytes[2] = bytes[3] = 0;
 	num_of_bytes = 0;
-	while (num_of_bits > 8)
-    {
+	while (num_of_bits > 8) {
 		bytes[num_of_bytes++] = decodebits(buf, 8);
 		num_of_bits -= 8;
 	}
-	if (num_of_bits > 0)
-    {
+
+	if (num_of_bits > 0) 
 		bytes[num_of_bytes++] = decodebits(buf, num_of_bits);
-	}
-	for (i = num_of_ints-1; i > 0; i--)
-    {
+
+	for (i = num_of_ints-1; i > 0; i--) {
 		num = 0;
-		for (j = num_of_bytes-1; j >=0; j--)
-        {
+		for (j = num_of_bytes-1; j >=0; j--) {
 			num = (num << 8) | bytes[j];
 			p = num / sizes[i];
 			bytes[j] = p;
@@ -2495,8 +2455,8 @@ static int xdrstdio_getlong (XDR *, int32_t *);
 static int xdrstdio_putlong (XDR *, int32_t *);
 static int xdrstdio_getbytes (XDR *, char *, unsigned int);
 static int xdrstdio_putbytes (XDR *, char *, unsigned int);
-static int64_t xdrstdio_getpos (XDR *);
-static int xdrstdio_setpos (XDR *, int64_t, int);
+static uint64_t xdrstdio_getpos (XDR *);
+static uint64_t xdrstdio_setpos (XDR *, uint64_t, int);
 static void xdrstdio_destroy (XDR *);
 
 /*
@@ -2577,8 +2537,7 @@ xdrstdio_putbytes (XDR *xdrs, char *addr, unsigned int len)
 }
 
 
-static int64_t
-xdrstdio_getpos (XDR *xdrs)
+static uint64_t xdrstdio_getpos (XDR *xdrs)
 {
     #ifdef _WIN32
     return _ftelli64((FILE *) xdrs->x_private);
@@ -2587,22 +2546,19 @@ xdrstdio_getpos (XDR *xdrs)
     #endif
 }
 
-static int
-xdrstdio_setpos (XDR *xdrs, int64_t pos, int whence)
+static uint64_t xdrstdio_setpos (XDR *xdrs, uint64_t pos, int whence)
 {
-    /* A reason for failure can be filesystem limits on allocation units,
-     * before the actual off_t overflow (ext3, with a 4K clustersize,
-     * has a 16TB limit).*/
-    /* We return errno relying on the fact that it is never set to 0 on
-     * success, which means that if an error occurrs it'll never be the same
-     * as exdrOK, and xdr_seek won't be confused.*/
-    #ifdef _WIN32
-	return _fseeki64((FILE *) xdrs->x_private, pos, whence) < 0 ? errno : exdrOK;
-    #else /*  __unix__ */
-	return fseeko((FILE *) xdrs->x_private, pos, whence) < 0 ? errno : exdrOK;
-    #endif
-
-
+  /* A reason for failure can be filesystem limits on allocation units,
+   * before the actual off_t overflow (ext3, with a 4K clustersize,
+   * has a 16TB limit).*/
+  /* We return errno relying on the fact that it is never set to 0 on
+   * success, which means that if an error occurrs it'll never be the same
+   * as exdrOK, and xdr_seek won't be confused.*/
+#ifdef _WIN32
+  return _fseeki64((FILE *) xdrs->x_private, pos, whence) < 0 ? errno : exdrOK;
+#else /*  __unix__ */
+  return fseeko((FILE *) xdrs->x_private, pos, whence) < 0 ? errno : exdrOK;
+#endif
 }
 
 

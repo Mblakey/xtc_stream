@@ -4,20 +4,25 @@
  *  for streamed decompression
  */
 
-
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
+
 #include <string.h>
+#include <time.h>
 
 #include <curl/curl.h>
 
 #include "xdrfile.h"
 #include "xdrfile_xtc.h"
 
-size_t clo_block_size;
-char clo_verbose; 
-char clo_path_type; 
+size_t block_size;
+bool opt_verbose; 
+bool opt_timing; 
+bool opt_force_stream; 
+char path_type; 
 const char *path; 
+
 
 #define MAGIC 1995
 
@@ -96,31 +101,34 @@ union punned_int32_t lp;
 
 int minint[3]; 
 int maxint[3];  
-float box[DIM*DIM]; // some type funnines here
+float box[DIM*DIM]; 
 rvec *pos = NULL; 
 
 
 /* decompile the compressed xtc file directly from a data path */
 static int decompile_xtcfile(struct XDRFILE *fp) 
 {
-  if (clo_verbose) fprintf(stderr, "=== reading xtc file...\n"); 
+  if (opt_verbose) fprintf(stderr, "=== reading xtc file...\n"); 
+
+  clock_t start; 
+
+  if (opt_timing) 
+    start = clock(); 
   
   int natoms; 
   int step; 
   float time; 
   matrix box; 
   float prec = 1000; 
-  unsigned long frames = 0;
-  int xdr_status;
   /*
   float *lx = &box[0][0]; 
   float *ly = &box[1][1]; 
   float *lz = &box[2][2]; 
   */
 
-  xdr_status = xtc_header(fp, &natoms, &step, &time, 0x0);
+  int xdr_status = xtc_header(fp, &natoms, &step, &time, 0x0);
   if (xdr_status == exdrOK){
-    if (clo_verbose)
+    if (opt_verbose)
       fprintf(stderr, "=== %d atoms in xtc\n", natoms); 
   }
   else fprintf(stderr, "Error: decompile_xtcfile() -- read atoms returned non exdrOK status\n"); 
@@ -136,8 +144,18 @@ static int decompile_xtcfile(struct XDRFILE *fp)
       fprintf(stdout, "%8.3f %8.3f %8.3f\n",pos[i][0], pos[i][1], pos[i][2]);
   }
   
-  if (clo_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
+  if (opt_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
   free(pos);
+
+  if (opt_timing) {
+    clock_t end = clock(); 
+    double elapsed = (double)(end - start) / CLOCKS_PER_SEC; 
+
+    int seconds = (int)elapsed; 
+    int mseconds = (int)((elapsed - seconds) * 1000.0); 
+
+    fprintf(stderr, "%d.%03d seconds\n", seconds, mseconds); 
+  }
   return 0; 
 }
 
@@ -524,7 +542,7 @@ jmp_header_read_magic:
 
 static int decompile_chunked_xtc_fp(FILE *fp, uint8_t *blk, size_t blk_size) 
 {
-  if (clo_verbose) fprintf(stderr, "=== streaming xtc file statefully...\n"); 
+  if (opt_verbose) fprintf(stderr, "=== streaming xtc file statefully...\n"); 
   
   frames = 0; 
   state = HEADER_READ_MAGIC; 
@@ -541,7 +559,7 @@ static int decompile_chunked_xtc_fp(FILE *fp, uint8_t *blk, size_t blk_size)
     free(pos); 
   free(decomp_buffer); 
   
-  if (clo_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
+  if (opt_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
   return 0; 
 }
 
@@ -558,7 +576,7 @@ static size_t libcurl_write_callback(void *ptr, size_t size, size_t nmemb, void 
 
 
 static int decompile_chunked_xtc_curl(CURL *eh, uint8_t *blk, size_t blk_size) {
-  if (clo_verbose) fprintf(stderr, "=== streaming xtc file statefully over download...\n"); 
+  if (opt_verbose) fprintf(stderr, "=== streaming xtc file statefully over download...\n"); 
   
   state = HEADER_READ_MAGIC; 
   decomp_buffer_size = 16;
@@ -575,7 +593,7 @@ static int decompile_chunked_xtc_curl(CURL *eh, uint8_t *blk, size_t blk_size) {
 
   if (res != CURLE_OK) return 1; 
   
-  if (clo_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
+  if (opt_verbose) fprintf(stderr, "=== %lu frames read\n", frames); 
 
   curl_off_t val;
   res = curl_easy_getinfo(eh, CURLINFO_SIZE_DOWNLOAD_T, &val);
@@ -605,6 +623,7 @@ static void display_usage() {
       "  xtc-decompile [options] [<path> | -u <url>]\n"
       "options:\n"
       //"  -b|--block <size>\tset the thread block size (default 16KiB)\n"
+      "  -t|--timing\ttime the decompression\n"
       "  -u|--url\tstream the xtc file from a valid file url\n"
       "  -v|--verbose\tverbose logging to stderr\n"
       ); 
@@ -615,9 +634,12 @@ static void display_usage() {
 static void process_cml(int argc, char **argv) {
   int j = 0; 
   
-  clo_verbose    = 0; 
-  clo_block_size = 16384; 
-  clo_path_type  = PATH_TYPE_FPTR; 
+  opt_verbose      = false; 
+  opt_force_stream = false; 
+  opt_timing       = false; 
+
+  block_size = 16384; 
+  path_type  = PATH_TYPE_FPTR; 
   path  = (const char*)NULL; 
 
   for (int i=1; i<argc; i++) {
@@ -625,14 +647,27 @@ static void process_cml(int argc, char **argv) {
 
     if (ptr[0] == '-' && ptr[1]) switch(ptr[1]) {
       case 'b':
-        if (++i == argc || !(clo_block_size = atoi(argv[i]))) {
+        if (++i == argc || !(block_size = atoi(argv[i]))) {
           fprintf(stderr, "Error: process_cml -- block size option must be followed with an int\n"); 
           display_usage(); 
         }
         break; 
 
-      case 'u': clo_path_type = PATH_TYPE_URL; break; 
-      case 'v': clo_verbose++; break; 
+      case 't': opt_timing = true; break; 
+      case 'u': path_type = PATH_TYPE_URL; break; 
+      case 'v': opt_verbose++; break; 
+
+      case '-':
+        if (strcmp(ptr, "--force-stream") == 0)
+          opt_force_stream = true;
+        else if (strcmp(ptr, "--verbose") == 0)
+          opt_verbose++; 
+        else if (strcmp(ptr, "--timing") == 0)
+          opt_timing = true; 
+        else if (strcmp(ptr, "--url") == 0)
+          path_type = PATH_TYPE_URL; 
+        else display_usage(); 
+        break; 
 
       default: 
         fprintf(stderr, "Error: process_cml -- unknown option - %s\n", ptr); 
@@ -640,16 +675,13 @@ static void process_cml(int argc, char **argv) {
     }
     else switch (j++) {
       case 0: path = ptr; break; 
+      default: display_usage(); 
     }
   }
 
   if (j < 1) {
     fprintf(stderr, "Error: process_cml -- not enough args\n"); 
     display_usage(); 
-  }
-
-  if (clo_verbose) {
-    fprintf(stderr, "=== block size %llu\n", (unsigned long long)clo_block_size);  
   }
 }
 
@@ -658,29 +690,46 @@ static void process_cml(int argc, char **argv) {
 
 int main(int argc, char **argv) {
   process_cml(argc, argv); 
-  
-  if (clo_path_type == PATH_TYPE_FPTR) {
-    struct XDRFILE *fp = xdrfile_open(path, "rb"); 
-    if (fp == NULL) {
-      fprintf(stderr, "Error: main() -- could not open xtc file\n"); 
-      return 1; 
-    }
+ 
+  switch (path_type) {
 
-    decompile_xtcfile(fp); 
-    xdrfile_close(fp);
-    return 0; 
-  }
-  else if (clo_path_type == PATH_TYPE_URL) {
-    curl_global_init(CURL_GLOBAL_ALL); 
-    CURL *eh = curl_easy_init(); 
-    uint8_t *blk = (uint8_t*)malloc(clo_block_size); 
+    case PATH_TYPE_FPTR: 
+      if (opt_force_stream) {
+        FILE *ifp = fopen(path, "rb"); 
+        if (ifp == NULL) {
+          fprintf(stderr, "Error: main() -- could not open xtc file at %s\n", path); 
+          return 1; 
+        }
 
-    decompile_chunked_xtc_curl(eh, blk, clo_block_size); 
+        uint8_t *blk = (uint8_t*)malloc(block_size); 
+        decompile_chunked_xtc_fp(ifp, blk, block_size); 
+        
+        free(blk); 
+        fclose(ifp); 
+        return 0; 
+      }
+      else {
+        XDRFILE *fp = xdrfile_open(path, "rb"); 
+        if (fp == NULL) {
+          fprintf(stderr, "Error: main() -- could not open xtc file at %s\n", path); 
+          return 1; 
+        }
+        decompile_xtcfile(fp); 
+        xdrfile_close(fp);
+        return 0; 
+      }
 
-    free(blk); 
-    curl_easy_cleanup(eh);
-    curl_global_cleanup(); 
-    return 0; 
+    case PATH_TYPE_URL: 
+      curl_global_init(CURL_GLOBAL_ALL); 
+      CURL *eh = curl_easy_init(); 
+      uint8_t *blk = (uint8_t*)malloc(block_size); 
+
+      decompile_chunked_xtc_curl(eh, blk, block_size); 
+
+      free(blk); 
+      curl_easy_cleanup(eh);
+      curl_global_cleanup(); 
+      return 0; 
   }
 
   return 0; 

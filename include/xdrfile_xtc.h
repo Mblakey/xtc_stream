@@ -28,6 +28,8 @@
 #ifndef _xdrfile_xtc_h
 #define _xdrfile_xtc_h
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,7 +49,7 @@ extern int read_xtc(XDRFILE * xd, int natoms, int *step, float *time,
 
 /* Write a frame to xtc file */
 extern int write_xtc(XDRFILE * xd, int natoms, int step, float time,
-                       matrix box, rvec *x, float prec);
+                     matrix box, rvec *x, float prec);
 
 /* Read Header information of the current frame */
 extern int xtc_header(XDRFILE *xd, int *natoms, int *step, float *time,
