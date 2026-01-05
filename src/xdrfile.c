@@ -34,8 +34,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <limits.h>
+
+#include <assert.h>
 #include <errno.h>
+#include <limits.h>
 
 /* get fixed-width types if we are using ANSI C99 */
 #ifdef HAVE_STDINT_H
@@ -43,6 +45,8 @@
 #elif (defined HAVE_INTTYPES_H)
 #  include <inttypes.h>
 #endif
+
+#define COMPILER_BUILT_INS
 
 #include <sys/types.h>
 #define _FILE_OFFSET_BITS 64
@@ -476,6 +480,9 @@ int xdrfile_write_opaque(char *ptr, int cnt, XDRFILE *xfp)
  * to represent a certain integer.
  */
 int sizeofint(int size) {
+#ifdef COMPILER_BUILT_INS
+  return __builtin_popcount(size); 
+#else
   unsigned int num = 1;
   int num_of_bits = 0;
 
@@ -483,8 +490,8 @@ int sizeofint(int size) {
     num_of_bits++;
     num <<= 1;
   }
-
   return num_of_bits;
+#endif
 }
 
 
