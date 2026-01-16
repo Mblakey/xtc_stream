@@ -1,4 +1,4 @@
-/* -*- mode: c; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*-
+/*
  *
  * Copyright (c) 2009-2014, Erik Lindahl & David van der Spoel
  * All rights reserved.
@@ -33,11 +33,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdalign.h>
 #include <math.h>
 
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
+
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
 
 /* get fixed-width types if we are using ANSI C99 */
 #ifdef HAVE_STDINT_H
@@ -263,11 +268,9 @@ int xdrfile_close(XDRFILE *xfp)
 int xdrfile_read_int(int *ptr, int ndata, XDRFILE *xfp)
 {
 	int i=0;
-
 	/* read write is encoded in the XDR struct */
 	while(i<ndata && xdr_int((XDR *)(xfp->xdr),ptr+i))
 		i++;
-
 	return i;
 }
 
@@ -516,8 +519,7 @@ int sizeofints(int num_of_ints, unsigned int sizes[])
     for (i=0; i < num_of_ints; i++)
     {
 		tmp = 0;
-		for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++)
-        {
+		for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++) {
 			tmp = bytes[bytecnt] * sizes[i] + tmp;
 			bytes[bytecnt] = tmp & 0xff;
 			tmp >>= 8;
@@ -550,15 +552,12 @@ int sizeofints(int num_of_ints, unsigned int sizes[])
  */
 static void encodebits(int *buf, int num_of_bits, int num)
 {
-  unsigned int cnt, lastbyte;
-  int lastbits;
-  unsigned char * cbuf;
-
-  cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
-  cnt = (unsigned int) buf[0];
-  lastbits = buf[1];
-  lastbyte =(unsigned int) buf[2];
-
+  unsigned int cnt = (unsigned int) buf[0];
+  unsigned char *cbuf = ((unsigned char *)buf) + 3 * sizeof(*buf);
+  unsigned int lastbyte =(unsigned int) buf[2];
+  int lastbits = buf[1];
+ 
+  #pragma GCC unroll 4
   while (num_of_bits >= 8) {
     lastbyte = (lastbyte << 8) | ((num >> (num_of_bits -8)) /* & 0xff*/);
     cbuf[cnt++] = lastbyte >> lastbits;
@@ -664,6 +663,8 @@ int decodebits(int *buf, int num_of_bits)
   lastbyte = (unsigned int) buf[2];
 
   num = 0;
+
+  #pragma GCC unroll 4
   while (num_of_bits >= 8) {
     lastbyte = ( lastbyte << 8 ) | cbuf[cnt++];
     num |=  (lastbyte >> lastbits) << (num_of_bits - 8);
@@ -704,6 +705,8 @@ void decodeints(int *buf, int num_of_ints, int num_of_bits,
 
 	bytes[1] = bytes[2] = bytes[3] = 0;
 	num_of_bytes = 0;
+
+  #pragma GCC unroll 4
 	while (num_of_bits > 8) {
 		bytes[num_of_bytes++] = decodebits(buf, 8);
 		num_of_bits -= 8;
@@ -712,6 +715,7 @@ void decodeints(int *buf, int num_of_ints, int num_of_bits,
 	if (num_of_bits > 0) 
 		bytes[num_of_bytes++] = decodebits(buf, num_of_bits);
 
+  #pragma GCC unroll 4
 	for (i = num_of_ints-1; i > 0; i--) {
 		num = 0;
 		for (j = num_of_bytes-1; j >=0; j--) {
@@ -742,7 +746,212 @@ static const int magicints[] =
 #define LASTIDX (sizeof(magicints) / sizeof(*magicints))
 
 
-/* Compressed coordinate routines - modified from the original
+#if defined(__SSE2__) 
+/* 
+ * Compressed coordinate routines - modified from the original
+ * implementation by Frans v. Hoesel to make them threadsafe.
+ * Vectorised version by Michael k. Blakey
+ */
+int xdrfile_decompress_coord_float(float *ptr, 
+                                   int *size,
+                                   float *precision,
+                                   XDRFILE* xfp)
+{
+	int *lip;
+	int smallidx, minidx, maxidx;
+  unsigned size3; 
+	int k, *buf1, *buf2, lsize, flag;
+	int smallnum, smaller, larger, i, is_smaller, run;
+	float *lfp, inv_precision;
+	int tmp; 
+	unsigned int bitsize;
+  alignas(16) unsigned int lane[4]; 
+
+  alignas(16) unsigned int bitsizeint[4];
+  __m128i bitsizeint_vec = _mm_setzero_si128(); 
+
+	if(xfp==NULL || ptr==NULL)
+		return -1;
+	tmp = xdrfile_read_int(&lsize,1,xfp);
+	if(tmp==0)
+		return -1; /* return if we could not read size */
+	if (*size < lsize) {
+		fprintf(stderr, "Requested to decompress %d coords, file contains %d\n",
+				    *size, lsize);
+		return -1;
+	}
+
+	*size = lsize;
+	size3 = *size * 3;
+	if (size3>xfp->buf1size) {
+		if ((xfp->buf1 = (int *)malloc(sizeof(int)*size3))==NULL) {
+			fprintf(stderr,"Cannot allocate memory for decompressing coordinates.\n");
+			return -1;
+		}
+		xfp->buf1size=size3;
+		xfp->buf2size=size3*1.2;
+		if ((xfp->buf2=(int *)malloc(sizeof(int)*xfp->buf2size))==NULL) {
+			fprintf(stderr,"Cannot allocate memory for decompressing coordinates.\n");
+			return -1;
+		}
+	}
+
+	/* Dont bother with compression for three atoms or less */
+	if (*size<=9) {
+		/* return number of coords, not floats */
+		return xdrfile_read_float(ptr,size3,xfp)/3;
+	}
+	/* Compression-time if we got here. Read precision first */
+	xdrfile_read_float(precision,1,xfp);
+	
+  /* avoid repeated pointer dereferencing. */
+	buf1=xfp->buf1;
+	buf2=xfp->buf2;
+	/* buf2[0-2] are special and do not contain actual data */
+	buf2[0] = buf2[1] = buf2[2] = 0;
+	
+  xdrfile_read_int(lane,3,xfp);
+  const __m128i minint_vec = _mm_load_si128((__m128i*)lane);
+
+	xdrfile_read_int(lane,3,xfp);
+  const __m128i maxint_vec = _mm_load_si128((__m128i*)lane);
+
+  const __m128i ones     = _mm_set1_epi32(1); 
+  __m128i temp = _mm_sub_epi32(maxint_vec, minint_vec);  // maxint - minint
+  __m128i sizeint_vec = _mm_add_epi32(temp, ones);       // + 1
+  
+  alignas(16) unsigned int sizeint[4];
+  _mm_store_si128((__m128i*)sizeint, sizeint_vec);
+
+	if ((sizeint[0] | sizeint[1] | sizeint[2] ) > 0xffffff) {
+		lane[0] = sizeofint(sizeint[0]);
+		lane[1] = sizeofint(sizeint[1]);
+		lane[2] = sizeofint(sizeint[2]);
+    lane[3] = 0;
+    bitsizeint_vec = _mm_load_si128((__m128i*)lane);
+    
+    /* flag the use of large sizes */
+		bitsize = 0;
+  }
+  else 
+		bitsize = sizeofints(3, sizeint);
+
+	if (xdrfile_read_int(&smallidx,1,xfp) == 0)
+		return 0; /* not sure what has happened here or why we return... */
+
+  tmp = smallidx+8;
+	maxidx = (LASTIDX<tmp) ? LASTIDX : tmp;
+	minidx = maxidx - 8; /* often this equal smallidx */
+	tmp = smallidx-1;
+	tmp = (FIRSTIDX>tmp) ? FIRSTIDX : tmp;
+	smaller = magicints[tmp] / 2;
+	smallnum = magicints[smallidx] / 2;
+	larger = magicints[maxidx];
+
+  alignas(16) int minint[4]; 
+  alignas(16) int prevcoord[4]; 
+  alignas(16) unsigned int sizesmall[4]; 
+
+  sizesmall[0] = sizesmall[1] = sizesmall[2] = magicints[smallidx]; 
+  
+  _mm_store_si128((__m128i*)minint, minint_vec);
+  _mm_store_si128((__m128i*)bitsizeint, bitsizeint_vec);
+
+	if (xdrfile_read_int(buf2,1,xfp) == 0)
+		return 0;
+	if (xdrfile_read_opaque((char *)&(buf2[3]),(unsigned int)buf2[0],xfp) == 0)
+		return 0;
+  
+	buf2[0] = buf2[1] = buf2[2] = 0;
+
+	lfp = ptr;
+	inv_precision = 1.0 / *precision;
+	run = 0;
+	i = 0;
+	lip = buf1;
+
+	while (i < lsize) {
+		int *thiscoord = (int *)(lip) + i * 3;
+		if (bitsize == 0) {
+			thiscoord[0] = decodebits(buf2, bitsizeint[0]);
+			thiscoord[1] = decodebits(buf2, bitsizeint[1]);
+			thiscoord[2] = decodebits(buf2, bitsizeint[2]);
+		} else {
+      decodeints(buf2, 3, bitsize, sizeint, thiscoord);
+    }
+
+		i++;
+		thiscoord[0] += minint[0];
+		thiscoord[1] += minint[1];
+		thiscoord[2] += minint[2];
+
+		prevcoord[0] = thiscoord[0];
+		prevcoord[1] = thiscoord[1];
+		prevcoord[2] = thiscoord[2];
+
+		flag = decodebits(buf2, 1);
+		is_smaller = 0;
+		if (flag == 1) {
+			run = decodebits(buf2, 5);
+			is_smaller = run % 3;
+			run -= is_smaller;
+			is_smaller--;
+		}
+		if (run > 0) {
+			thiscoord += 3;
+			for (k = 0; k < run; k+=3) {
+				decodeints(buf2, 3, smallidx, sizesmall, thiscoord);
+				i++;
+				thiscoord[0] += prevcoord[0] - smallnum;
+				thiscoord[1] += prevcoord[1] - smallnum;
+				thiscoord[2] += prevcoord[2] - smallnum;
+				if (k == 0) {
+					/* interchange first with second atom for better
+					 * compression of water molecules
+					 */
+					tmp = thiscoord[0]; thiscoord[0] = prevcoord[0];
+					prevcoord[0] = tmp;
+					tmp = thiscoord[1]; thiscoord[1] = prevcoord[1];
+					prevcoord[1] = tmp;
+					tmp = thiscoord[2]; thiscoord[2] = prevcoord[2];
+					prevcoord[2] = tmp;
+					*lfp++ = prevcoord[0] * inv_precision;
+					*lfp++ = prevcoord[1] * inv_precision;
+					*lfp++ = prevcoord[2] * inv_precision;
+				} else {
+					prevcoord[0] = thiscoord[0];
+					prevcoord[1] = thiscoord[1];
+					prevcoord[2] = thiscoord[2];
+				}
+				*lfp++ = thiscoord[0] * inv_precision;
+				*lfp++ = thiscoord[1] * inv_precision;
+				*lfp++ = thiscoord[2] * inv_precision;
+			}
+		} else {
+			*lfp++ = thiscoord[0] * inv_precision;
+			*lfp++ = thiscoord[1] * inv_precision;
+			*lfp++ = thiscoord[2] * inv_precision;
+		}
+		smallidx += is_smaller;
+		if (is_smaller < 0) {
+			smallnum = smaller;
+
+			if (smallidx > FIRSTIDX) {
+				smaller = magicints[smallidx - 1] /2;
+			} else {
+				smaller = 0;
+			}
+		} else if (is_smaller > 0) {
+			smaller = smallnum;
+			smallnum = magicints[smallidx] / 2;
+		}
+		sizesmall[0] = sizesmall[1] = sizesmall[2] = magicints[smallidx] ;
+	}
+	return *size;
+}
+#else
+/* 
+ * Compressed coordinate routines - modified from the original
  * implementation by Frans v. Hoesel to make them threadsafe.
  */
 int xdrfile_decompress_coord_float(float *ptr, 
@@ -789,8 +998,8 @@ int xdrfile_decompress_coord_float(float *ptr,
 	}
 	/* Dont bother with compression for three atoms or less */
 	if (*size<=9) {
-		return xdrfile_read_float(ptr,size3,xfp)/3;
 		/* return number of coords, not floats */
+		return xdrfile_read_float(ptr,size3,xfp)/3;
 	}
 	/* Compression-time if we got here. Read precision first */
 	xdrfile_read_float(precision,1,xfp);
@@ -813,13 +1022,14 @@ int xdrfile_decompress_coord_float(float *ptr,
 		bitsizeint[1] = sizeofint(sizeint[1]);
 		bitsizeint[2] = sizeofint(sizeint[2]);
 		bitsize = 0; /* flag the use of large sizes */
-	} else {
-		bitsize = sizeofints(3, sizeint);
 	}
+  else 
+		bitsize = sizeofints(3, sizeint);
 
 	if (xdrfile_read_int(&smallidx,1,xfp) == 0)
 		return 0; /* not sure what has happened here or why we return... */
-	tmp=smallidx+8;
+  
+  tmp = smallidx+8;
 	maxidx = (LASTIDX<tmp) ? LASTIDX : tmp;
 	minidx = maxidx - 8; /* often this equal smallidx */
 	tmp = smallidx-1;
@@ -923,6 +1133,7 @@ int xdrfile_decompress_coord_float(float *ptr,
 	}
 	return *size;
 }
+#endif
 
 int xdrfile_compress_coord_float(float *ptr, int size, float precision, XDRFILE *xfp)
 {

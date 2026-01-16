@@ -303,7 +303,6 @@ static int decompile_xtc_chunk(uint8_t *blk, size_t gbytes)
   while (gread < gbytes) {
 
     switch (state) {
-
       case HEADER_READ_MAGIC:
 jmp_header_read_magic:
         while (gread<gbytes && lread<4) 
@@ -546,7 +545,7 @@ static int decompile_chunked_xtc_fp(FILE *fp, uint8_t *blk, size_t blk_size)
   
   frames = 0; 
   state = HEADER_READ_MAGIC; 
-  decomp_buffer_size = 16;
+  decomp_buffer_size = 64;
   decomp_buffer = (int*)malloc(sizeof(int)*decomp_buffer_size); 
   
   size_t gbytes; 
@@ -579,7 +578,7 @@ static int decompile_chunked_xtc_curl(CURL *eh, uint8_t *blk, size_t blk_size) {
   if (opt_verbose) fprintf(stderr, "=== streaming xtc file statefully over download...\n"); 
   
   state = HEADER_READ_MAGIC; 
-  decomp_buffer_size = 16;
+  decomp_buffer_size = 64;
   decomp_buffer = (int*)malloc(sizeof(int)*decomp_buffer_size); 
 
   curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, libcurl_write_callback); 
@@ -656,7 +655,7 @@ static void process_cml(int argc, char **argv) {
       case 't': opt_timing = true; break; 
       case 'u': path_type = PATH_TYPE_URL; break; 
       case 'v': opt_verbose++; break; 
-
+    
       case '-':
         if (strcmp(ptr, "--force-stream") == 0)
           opt_force_stream = true;
