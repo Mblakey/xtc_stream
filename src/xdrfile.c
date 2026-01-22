@@ -498,6 +498,75 @@ int sizeofint(int size) {
 }
 
 
+unsigned char minbits_table[256] = {
+0,
+1,2,2,3,
+3,3,3,4,
+4,4,4,4,
+4,4,4,5,
+5,5,5,5,
+5,5,5,5,
+5,5,5,5,
+5,5,5,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,6,
+6,6,6,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,7,
+7,7,7,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,8,
+8,8,8,};
+
+
+#if 0
 /*
  * sizeofints - calculate 'bitsize' of compressed ints
  *
@@ -508,7 +577,56 @@ int sizeofint(int size) {
  * (However, in some cases we can just use the variable 'smallidx'
  * which is the exact number of bits, and them we dont need to call
  * this routine).
+ *
+ * 2x speed up vs the original. 
  */
+int sizeofints(int num_of_ints, unsigned int sizes[])
+{
+  alignas(64) unsigned char bytes[32]; 
+
+  /* small optimisation, first byte array fill is simply to 
+   * fill in the sizes[0] bytes, saves 1 loop, num of bytes 
+   * can then be found from highest set bit instruction */
+  *(unsigned int*)bytes = sizes[0]; 
+  unsigned int msb = 31 - __builtin_clz(sizes[0]); 
+  unsigned int num_of_bytes = msb/8 + 1; 
+  unsigned int num_of_bits = 0; 
+  int i = 1;
+  
+#pragma GCC unroll 3 // max 4, take off our check start check
+  for (; i < num_of_ints; i++) {
+    unsigned int tmp = 0;
+    unsigned int bytecnt = 0;
+
+    /* loop is unfortuanately serial */
+#pragma GCC unroll 12
+    for (; bytecnt < num_of_bytes; bytecnt++) {
+      tmp += bytes[bytecnt] * sizes[i];
+      bytes[bytecnt] = tmp;
+      tmp >>= 8;
+    }
+
+    /* 
+     * in combintation with the unroll above, the switch statement 
+     * gives a noticeable performance boost, speculative executation
+     * wins here due to tmp "copies" being inflight 
+     */
+    msb = 31 - __builtin_clz(tmp); 
+    const unsigned char n =msb/8 + 1;
+  
+    /* unrolled loop with bounded switch */
+    switch (n & 0x7) {
+      case 4: bytes[bytecnt++] = tmp & 0xFF; tmp >>= 8;
+      case 3: bytes[bytecnt++] = tmp & 0xFF; tmp >>= 8;
+      case 2: bytes[bytecnt++] = tmp & 0xFF; tmp >>= 8;
+      case 1: bytes[bytecnt++] = tmp & 0xFF; 
+    }
+    num_of_bytes = bytecnt;
+  }
+  num_of_bits = minbits_table[bytes[--num_of_bytes]] ; 
+  return num_of_bits + num_of_bytes * 8;
+}
+#else
 int sizeofints(int num_of_ints, unsigned int sizes[])
 {
     int i, num;
@@ -516,31 +634,32 @@ int sizeofints(int num_of_ints, unsigned int sizes[])
     num_of_bytes = 1;
     bytes[0] = 1;
     num_of_bits = 0;
-    for (i=0; i < num_of_ints; i++)
-    {
-		tmp = 0;
-		for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++) {
-			tmp = bytes[bytecnt] * sizes[i] + tmp;
-			bytes[bytecnt] = tmp & 0xff;
-			tmp >>= 8;
-		}
-		while (tmp != 0)
-        {
-			bytes[bytecnt++] = tmp & 0xff;
-			tmp >>= 8;
-		}
-		num_of_bytes = bytecnt;
+
+    /* potential vectorise here */
+    for (i=0; i < num_of_ints; i++) {
+      tmp = 0;
+      for (bytecnt = 0; bytecnt < num_of_bytes; bytecnt++) {
+        tmp = bytes[bytecnt] * sizes[i] + tmp;
+        bytes[bytecnt] = tmp & 0xff;
+        tmp >>= 8;
+      }
+
+      while (tmp != 0) {
+        bytes[bytecnt++] = tmp & 0xff;
+        tmp >>= 8;
+      }
+      num_of_bytes = bytecnt;
     }
+
     num = 1;
     num_of_bytes--;
-    while (bytes[num_of_bytes] >= num)
-    {
-		num_of_bits++;
-		num *= 2;
+    while (bytes[num_of_bytes] >= num) {
+      num_of_bits++;
+      num *= 2;
     }
     return num_of_bits + num_of_bytes * 8;
 }
-
+#endif
 
 /*
  * encodebits - encode num into buf using the specified number of bits

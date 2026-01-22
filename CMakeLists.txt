@@ -14,6 +14,7 @@ set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/src)
 set(SOURCES ${SOURCE_DIR}/xdrfile.c ${SOURCE_DIR}/xdrfile_trr.c ${SOURCE_DIR}/xdrfile_xtc.c)
 
 add_executable(xtc-decompile ${SOURCE_DIR}/xtcdecompile.c ${SOURCES}) 
+add_executable(mkbitjmptlb ${SOURCE_DIR}/mkjmptlb.c) 
 
 if (COMPILER_SUPPORTS_SSE2)
   target_compile_options(xtc-decompile PRIVATE -msse2)
