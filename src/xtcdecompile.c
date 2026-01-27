@@ -1,7 +1,6 @@
 /*
- *  Michael Blakey 
- *  GROMACS XTC reverse engineering
- *  for streamed decompression
+ *  Michael k. Blakey 
+ *  performance optimised GROMACS XTC streamable codec
  */
 
 #include <stdlib.h>
@@ -22,7 +21,6 @@ bool opt_timing;
 bool opt_force_stream; 
 char path_type; 
 const char *path; 
-
 
 #define MAGIC 1995
 

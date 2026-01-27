@@ -11,13 +11,20 @@ include_directories(include)
 find_package(CURL REQUIRED)
 
 set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/src)
-set(SOURCES ${SOURCE_DIR}/xdrfile.c ${SOURCE_DIR}/xdrfile_trr.c ${SOURCE_DIR}/xdrfile_xtc.c)
+set(ORIG_SOURCES ${SOURCE_DIR}/xdrfile.c ${SOURCE_DIR}/xdrfile_trr.c ${SOURCE_DIR}/xdrfile_xtc.c)
 
-add_executable(xtc-decompile ${SOURCE_DIR}/xtcdecompile.c ${SOURCES}) 
+set(OPT_SOURCES ${SOURCE_DIR}/xdrfile_opt.c ${SOURCE_DIR}/xdrfile_trr.c ${SOURCE_DIR}/xdrfile_xtc.c)
+
+add_executable(xtc-decompile ${SOURCE_DIR}/xtcdecompile.c ${ORIG_SOURCES}) 
+add_executable(xtc-decompile-opt ${SOURCE_DIR}/xtcdecompile.c ${OPT_SOURCES}) 
+add_executable(test-harness ${SOURCE_DIR}/test_harness.c) 
 add_executable(mkbitjmptlb ${SOURCE_DIR}/mkjmptlb.c) 
 
 if (COMPILER_SUPPORTS_SSE2)
   target_compile_options(xtc-decompile PRIVATE -msse2)
+  target_compile_options(xtc-decompile-opt PRIVATE -msse2)
+  target_compile_options(test-harness PRIVATE -msse2)
 endif()
 
 target_link_libraries(xtc-decompile CURL::libcurl)
+target_link_libraries(xtc-decompile-opt CURL::libcurl)
